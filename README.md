@@ -1,4 +1,4 @@
-# Friends Global Chat QoL
+# Awaiting Global Msgs
 
 A [RuneLite](https://runelite.net/) plugin that makes sure you never miss a message from a friend in public ("global") chat.
 

@@ -26,6 +26,8 @@ package com.xav.friendsglobalchatqol;
 
 import com.google.inject.Provides;
 import java.awt.Color;
+import java.awt.Rectangle;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
@@ -51,7 +53,7 @@ import net.runelite.client.util.Text;
  * unread - until the player dismisses it with the tick button.
  */
 @PluginDescriptor(
-	name = "Friends Global Chat QoL",
+	name = "Awaiting Global Msgs",
 	description = "Highlights public/global chat messages from friends and pins them at the top of the chatbox until you tick them off",
 	tags = {"friends", "chat", "highlight", "public", "global", "pin", "notification", "qol"}
 )
@@ -75,6 +77,15 @@ public class FriendsGlobalChatQolPlugin extends Plugin
 	private final List<PinnedMessage> pinnedMessages = new CopyOnWriteArrayList<>();
 	private final AtomicLong idGenerator = new AtomicLong();
 	private FriendPinMouseListener mouseListener;
+
+	/**
+	 * Bounds of the "+N more" overflow row, published by {@link FriendPinOverlay}
+	 * on every render and read by {@link FriendPinMouseListener} on click -
+	 * volatile for the same cross-thread-visibility reason as
+	 * {@link PinnedMessage#getTickBounds()}. Null whenever no overflow row is
+	 * currently drawn.
+	 */
+	private volatile Rectangle overflowRowBounds;
 
 	@Provides
 	FriendsGlobalChatQolConfig provideConfig(ConfigManager configManager)
@@ -102,6 +113,7 @@ public class FriendsGlobalChatQolPlugin extends Plugin
 		}
 
 		pinnedMessages.clear();
+		overflowRowBounds = null;
 	}
 
 	@Subscribe
@@ -166,8 +178,44 @@ public class FriendsGlobalChatQolPlugin extends Plugin
 		return pinnedMessages;
 	}
 
-	void dismiss(PinnedMessage message)
+	/**
+	 * Dismisses the given message along with every message pinned before it
+	 * (i.e. everything older). Clicking a tick always clears a contiguous
+	 * run from the oldest pinned message through whichever one was clicked,
+	 * which is what lets hovering down the stack and clicking mark several
+	 * messages read at once.
+	 */
+	void dismissUpToAndIncluding(PinnedMessage message)
 	{
-		pinnedMessages.remove(message);
+		int index = pinnedMessages.indexOf(message);
+		if (index < 0)
+		{
+			// Already dismissed by another click (e.g. a fast double click) -
+			// nothing left to do.
+			return;
+		}
+
+		int end = Math.min(index + 1, pinnedMessages.size());
+		List<PinnedMessage> toRemove = new ArrayList<>(pinnedMessages.subList(0, end));
+		pinnedMessages.removeAll(toRemove);
+	}
+
+	/**
+	 * Dismisses every pinned message, including any not currently drawn
+	 * because they're summarized in the overflow row.
+	 */
+	void dismissAll()
+	{
+		pinnedMessages.clear();
+	}
+
+	void setOverflowRowBounds(Rectangle bounds)
+	{
+		overflowRowBounds = bounds;
+	}
+
+	Rectangle getOverflowRowBounds()
+	{
+		return overflowRowBounds;
 	}
 }

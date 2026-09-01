@@ -43,14 +43,22 @@ import net.runelite.client.ui.overlay.OverlayPosition;
 
 /**
  * Draws the stack of pinned friend messages over the top of the chatbox's
- * message area, each with a circular green tick button on the right that
+ * message area, each with a circular tick button on the right that
  * dismisses it.
+ * <p>
+ * Only the oldest pinned message's tick is bright green by default; every
+ * other tick is greyed out. Hovering down over the stack "activates" (turns
+ * green) every row from the oldest through whichever one the cursor is
+ * over, previewing a bulk mark-as-read - clicking a tick then dismisses that
+ * message and everything older than it, so how far down you hover controls
+ * how many messages a single click clears.
  * <p>
  * The stack is deliberately capped to however many rows fit in the
  * chatbox's own message area, minus a couple of rows always left free so
  * live/normal chat stays visible underneath - if more messages are pinned
- * than that, the extra ones are summarized in a single non-interactive
- * "+N more" row rather than growing the overlay past the chatbox and onto
+ * than that, the extra ones are summarized in a single "+N more" row
+ * (clicking it dismisses everything, including the messages it's
+ * summarizing) rather than growing the overlay past the chatbox and onto
  * the rest of the game screen.
  */
 class FriendPinOverlay extends Overlay
@@ -60,8 +68,10 @@ class FriendPinOverlay extends Overlay
 	private static final int TICK_DIAMETER = 13;
 	private static final int MIN_VISIBLE_NATIVE_ROWS = 2;
 	private static final Color ROW_BACKGROUND = new Color(0, 0, 0, 195);
+	private static final Color OVERFLOW_ROW_BACKGROUND_HOVER = new Color(35, 90, 55, 220);
 	private static final Color TICK_COLOR = new Color(46, 204, 113);
 	private static final Color TICK_HOVER_COLOR = new Color(76, 224, 143);
+	private static final Color TICK_INACTIVE_COLOR = new Color(120, 120, 120);
 	private static final Color OVERFLOW_TEXT_COLOR = new Color(200, 200, 200);
 
 	private final Client client;
@@ -139,8 +149,23 @@ class FriendPinOverlay extends Overlay
 		java.awt.Point mouse = rawMouse == null ? null : new java.awt.Point(rawMouse.getX(), rawMouse.getY());
 
 		int x = bounds.x;
-		int y = bounds.y;
+		int startY = bounds.y;
+		int y = startY;
 		int width = bounds.width;
+
+		// Which row (0 = oldest) the cursor is currently over, if any -
+		// null means the cursor isn't over the stack at all this frame.
+		Integer hoveredRow = null;
+		if (mouse != null && mouse.x >= x && mouse.x < x + width && mouse.y >= startY)
+		{
+			hoveredRow = (mouse.y - startY) / ROW_HEIGHT;
+		}
+
+		// Only rows within the actually-drawn message rows count as
+		// "activating" the bulk-select preview; hovering the overflow row
+		// (handled separately below) or below everything doesn't.
+		int hoveredIndex = (hoveredRow != null && hoveredRow < rowsToDraw) ? hoveredRow : -1;
+
 		int rowsDrawn = 0;
 
 		// CopyOnWriteArrayList's iterator is a fixed snapshot, so this stays
@@ -153,7 +178,13 @@ class FriendPinOverlay extends Overlay
 				break;
 			}
 
-			drawMessageRow(graphics, fontMetrics, message, x, y, width, highlight, mouse);
+			// The oldest message (row 0) is active by default so there's
+			// always an obvious "next thing to read"; hovering down the
+			// stack extends the active/green run to whatever's hovered.
+			boolean active = hoveredIndex >= 0 ? rowsDrawn <= hoveredIndex : rowsDrawn == 0;
+			boolean exactHover = rowsDrawn == hoveredIndex;
+
+			drawMessageRow(graphics, fontMetrics, message, x, y, width, highlight, active, exactHover);
 
 			y += ROW_HEIGHT;
 			rowsDrawn++;
@@ -164,16 +195,22 @@ class FriendPinOverlay extends Overlay
 		if (overflow)
 		{
 			int hiddenCount = totalMessages - rowsDrawn;
-			drawOverflowRow(graphics, fontMetrics, hiddenCount, x, y, width);
+			boolean overflowHovered = hoveredRow != null && hoveredRow == rowsToDraw;
+			Rectangle overflowBounds = drawOverflowRow(graphics, fontMetrics, hiddenCount, x, y, width, overflowHovered);
+			plugin.setOverflowRowBounds(overflowBounds);
 			y += ROW_HEIGHT;
 			totalRows++;
+		}
+		else
+		{
+			plugin.setOverflowRowBounds(null);
 		}
 
 		return new Dimension(width, ROW_HEIGHT * totalRows);
 	}
 
 	private void drawMessageRow(Graphics2D graphics, FontMetrics fontMetrics, PinnedMessage message,
-		int x, int y, int width, Color highlight, java.awt.Point mouse)
+		int x, int y, int width, Color highlight, boolean active, boolean exactHover)
 	{
 		graphics.setColor(ROW_BACKGROUND);
 		graphics.fillRect(x, y, width, ROW_HEIGHT);
@@ -193,9 +230,18 @@ class FriendPinOverlay extends Overlay
 		graphics.setColor(highlight);
 		graphics.drawString(display, textX, y + ROW_HEIGHT - 5);
 
-		boolean hovered = mouse != null && tickBounds.contains(mouse);
+		Color tickColor;
+		if (!active)
+		{
+			tickColor = TICK_INACTIVE_COLOR;
+		}
+		else
+		{
+			tickColor = exactHover ? TICK_HOVER_COLOR : TICK_COLOR;
+		}
+
 		Ellipse2D circle = new Ellipse2D.Double(tickX, tickY, TICK_DIAMETER, TICK_DIAMETER);
-		graphics.setColor(hovered ? TICK_HOVER_COLOR : TICK_COLOR);
+		graphics.setColor(tickColor);
 		graphics.fill(circle);
 
 		graphics.setColor(Color.WHITE);
@@ -208,16 +254,19 @@ class FriendPinOverlay extends Overlay
 		message.setTickBounds(tickBounds);
 	}
 
-	private void drawOverflowRow(Graphics2D graphics, FontMetrics fontMetrics, int hiddenCount, int x, int y, int width)
+	private Rectangle drawOverflowRow(Graphics2D graphics, FontMetrics fontMetrics, int hiddenCount,
+		int x, int y, int width, boolean hovered)
 	{
-		graphics.setColor(ROW_BACKGROUND);
+		graphics.setColor(hovered ? OVERFLOW_ROW_BACKGROUND_HOVER : ROW_BACKGROUND);
 		graphics.fillRect(x, y, width, ROW_HEIGHT);
 
-		String text = "+" + hiddenCount + (hiddenCount == 1 ? " more pinned message" : " more pinned messages");
+		String text = "+" + hiddenCount + " more - click to mark all read";
 		String display = truncate(fontMetrics, text, width - 16);
 
-		graphics.setColor(OVERFLOW_TEXT_COLOR);
+		graphics.setColor(hovered ? Color.WHITE : OVERFLOW_TEXT_COLOR);
 		graphics.drawString(display, x + 8, y + ROW_HEIGHT - 5);
+
+		return new Rectangle(x, y, width, ROW_HEIGHT);
 	}
 
 	private static String truncate(FontMetrics fontMetrics, String text, int maxWidth)

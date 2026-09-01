@@ -30,8 +30,11 @@ import java.awt.event.MouseEvent;
 import net.runelite.client.input.MouseAdapter;
 
 /**
- * Listens for clicks on the tick buttons drawn by {@link FriendPinOverlay}
- * and dismisses the corresponding pinned message when one is clicked.
+ * Listens for clicks on the tick buttons drawn by {@link FriendPinOverlay}.
+ * Clicking any tick dismisses that message and every message pinned before
+ * it (oldest first), so hovering down the stack and clicking marks however
+ * many messages you hovered over as read in one go. Clicking the "+N more"
+ * overflow row dismisses everything, including messages not currently drawn.
  */
 class FriendPinMouseListener extends MouseAdapter
 {
@@ -47,12 +50,20 @@ class FriendPinMouseListener extends MouseAdapter
 	{
 		Point point = mouseEvent.getPoint();
 
+		Rectangle overflowBounds = plugin.getOverflowRowBounds();
+		if (overflowBounds != null && overflowBounds.contains(point))
+		{
+			plugin.dismissAll();
+			mouseEvent.consume();
+			return mouseEvent;
+		}
+
 		for (PinnedMessage message : plugin.getPinnedMessages())
 		{
 			Rectangle tickBounds = message.getTickBounds();
 			if (tickBounds != null && tickBounds.contains(point))
 			{
-				plugin.dismiss(message);
+				plugin.dismissUpToAndIncluding(message);
 				mouseEvent.consume();
 				break;
 			}
