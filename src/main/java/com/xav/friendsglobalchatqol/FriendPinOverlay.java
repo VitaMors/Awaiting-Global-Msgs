@@ -34,8 +34,8 @@ import java.awt.geom.Ellipse2D;
 import java.util.List;
 import javax.inject.Inject;
 import net.runelite.api.Client;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
@@ -95,7 +95,7 @@ class FriendPinOverlay extends Overlay
 			return null;
 		}
 
-		Widget chatboxMessages = client.getWidget(WidgetInfo.CHATBOX_MESSAGE_LINES);
+		Widget chatboxMessages = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
 		if (chatboxMessages == null || chatboxMessages.isHidden())
 		{
 			return null;
